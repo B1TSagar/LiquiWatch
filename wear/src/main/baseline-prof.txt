@@ -1,0 +1,4 @@
+HSPLcom/liquiwatch/wear/**->**(**)**
+HSPLcom/liquiwatch/shared/**->**(**)**
+Lcom/liquiwatch/wear/**;
+Lcom/liquiwatch/shared/**;

@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">LiquiWatch</string>
+    <string name="compass_name">Compass</string>
+    <string name="heart_panel_name">Expedition: heart panel</string>
+    <string name="steps_panel_name">Expedition: steps panel</string>
+    <string name="compass_panel_name">Expedition: compass panel</string>
+    <string name="date_panel_name">Expedition: date panel</string>
+    <string name="live_compass_channel">Live compass</string>
+    <string name="live_compass_title">Compass on your watch face</string>
+    <string name="live_compass_text">Follows your heading while the screen is on</string>
+</resources>

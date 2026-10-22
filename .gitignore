@@ -1,0 +1,13 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+**/build/
+.kotlin/
+# Samsung's Health Data SDK: under Samsung's own terms, not shared here (see phone/libs/README.txt)
+phone/libs/*.aar

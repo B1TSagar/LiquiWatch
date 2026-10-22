@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-feature android:name="android.hardware.type.watch" />
+
+    <!-- Heart rate and steps shown on the face. -->
+    <uses-permission android:name="android.permission.BODY_SENSORS" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+
+    <!-- Data from other apps' complications: the compass and the panels' pages (LiquiWatch's
+         companion) and the album art (Cover Display). Those two list these faces as safe, so
+         this is only for the watch to grant if it asks. -->
+    <uses-permission android:name="com.google.android.wearable.permission.RECEIVE_COMPLICATION_DATA" />
+
+    <!-- Watch Face Format: the face is res/raw/watchface.xml, and the app has no code. The
+         format version is set per face in build.gradle.kts (Expedition is version 4: Wear OS 6). -->
+    <application
+        android:label="@string/watch_face_name"
+        android:hasCode="false">
+        <meta-data
+            android:name="com.google.android.wearable.standalone"
+            android:value="true" />
+        <property
+            android:name="com.google.wear.watchface.format.version"
+            android:value="${wffVersion}" />
+    </application>
+</manifest>

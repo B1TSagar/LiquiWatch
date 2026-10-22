@@ -1,0 +1,8 @@
+<resources>
+    <!-- An ordinary Wear screen: swipe right (or Back) closes it. -->
+    <style name="Theme.FaceCompanion" parent="@android:style/Theme.DeviceDefault">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowSwipeToDismiss">true</item>
+    </style>
+</resources>

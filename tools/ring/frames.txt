@@ -1,0 +1,104 @@
+exp_ring_tube 0 0 450 450
+exp_ring_mk00 213 0 24 39 209.5 hour 14.5 6
+exp_ring_mk01 237 0 21 31 214 minute 10 3.9
+exp_ring_mk02 258 3 23 32 214 minute 10 3.9
+exp_ring_mk03 279 9 24 31 214 minute 10 3.9
+exp_ring_mk04 300 17 25 31 214 minute 10 3.9
+exp_ring_mk05 313 27 33 39 209.5 hour 14.5 6
+exp_ring_mk06 337 40 27 30 214 minute 10 3.9
+exp_ring_mk07 354 54 28 30 214 minute 10 3.9
+exp_ring_mk08 369 71 30 28 214 minute 10 3.9
+exp_ring_mk09 383 89 30 27 214 minute 10 3.9
+exp_ring_mk10 387 107 39 33 209.5 hour 14.5 6
+exp_ring_mk11 405 128 31 25 214 minute 10 3.9
+exp_ring_mk12 413 150 31 24 214 minute 10 3.9
+exp_ring_mk13 418 172 32 23 214 minute 10 3.9
+exp_ring_mk14 422 195 28 21 214 minute 10 3.9
+exp_ring_mk15 414 216 36 24 209.5 hour 14.5 6
+exp_ring_mk16 422 240 28 21 214 minute 10 3.9
+exp_ring_mk17 418 261 32 23 214 minute 10 3.9
+exp_ring_mk18 413 282 31 24 214 minute 10 3.9
+exp_ring_mk19 405 303 31 25 214 minute 10 3.9
+exp_ring_mk20 387 316 39 33 209.5 hour 14.5 6
+exp_ring_mk21 383 340 30 27 214 minute 10 3.9
+exp_ring_mk22 369 357 30 28 214 minute 10 3.9
+exp_ring_mk23 354 372 28 30 214 minute 10 3.9
+exp_ring_mk24 337 386 27 30 214 minute 10 3.9
+exp_ring_mk25 313 390 33 39 209.5 hour 14.5 6
+exp_ring_mk26 300 408 25 31 214 minute 10 3.9
+exp_ring_mk27 279 416 24 31 214 minute 10 3.9
+exp_ring_mk28 258 421 23 29 214 minute 10 3.9
+exp_ring_mk29 237 425 21 25 214 minute 10 3.9
+exp_ring_mk30 213 417 24 33 209.5 hour 14.5 6
+exp_ring_mk31 192 425 21 25 214 minute 10 3.9
+exp_ring_mk32 169 421 23 29 214 minute 10 3.9
+exp_ring_mk33 147 416 24 31 214 minute 10 3.9
+exp_ring_mk34 125 408 25 31 214 minute 10 3.9
+exp_ring_mk35 104 390 33 39 209.5 hour 14.5 6
+exp_ring_mk36 86 386 27 30 214 minute 10 3.9
+exp_ring_mk37 68 372 28 30 214 minute 10 3.9
+exp_ring_mk38 51 357 30 28 214 minute 10 3.9
+exp_ring_mk39 37 340 30 27 214 minute 10 3.9
+exp_ring_mk40 24 316 39 33 209.5 hour 14.5 6
+exp_ring_mk41 14 303 31 25 214 minute 10 3.9
+exp_ring_mk42 6 282 31 24 214 minute 10 3.9
+exp_ring_mk43 0 261 32 23 214 minute 10 3.9
+exp_ring_mk44 0 240 28 21 214 minute 10 3.9
+exp_ring_mk45 0 216 36 24 209.5 hour 14.5 6
+exp_ring_mk46 0 195 28 21 214 minute 10 3.9
+exp_ring_mk47 0 172 32 23 214 minute 10 3.9
+exp_ring_mk48 6 150 31 24 214 minute 10 3.9
+exp_ring_mk49 14 128 31 25 214 minute 10 3.9
+exp_ring_mk50 24 107 39 33 209.5 hour 14.5 6
+exp_ring_mk51 37 89 30 27 214 minute 10 3.9
+exp_ring_mk52 51 71 30 28 214 minute 10 3.9
+exp_ring_mk53 68 54 28 30 214 minute 10 3.9
+exp_ring_mk54 86 40 27 30 214 minute 10 3.9
+exp_ring_mk55 104 27 33 39 209.5 hour 14.5 6
+exp_ring_mk56 125 17 25 31 214 minute 10 3.9
+exp_ring_mk57 147 9 24 31 214 minute 10 3.9
+exp_ring_mk58 169 3 23 32 214 minute 10 3.9
+exp_ring_mk59 192 0 21 31 214 minute 10 3.9
+exp_ring_knob00 192 0 66 37 0
+exp_ring_knob01 192 0 66 37 10
+exp_ring_knob02 192 0 66 37 20
+exp_ring_knob03 192 0 66 37 30
+exp_ring_knob04 192 0 66 37 40
+exp_ring_knob05 192 0 66 37 50
+exp_ring_knob06 192 0 66 37 60
+exp_ring_knob07 192 0 66 37 70
+exp_ring_knob08 192 0 66 37 80
+exp_ring_knob09 192 0 66 37 90
+exp_ring_knob10 192 0 66 37 100
+exp_ring_knob11 192 0 66 37 110
+exp_ring_knob12 192 0 66 37 120
+exp_ring_knob13 192 0 66 37 130
+exp_ring_knob14 192 0 66 37 140
+exp_ring_knob15 192 0 66 37 150
+exp_ring_knob16 192 0 66 37 160
+exp_ring_knob17 192 0 66 37 170
+exp_ring_knob18 192 0 66 37 180
+exp_ring_knob19 192 0 66 37 190
+exp_ring_knob20 192 0 66 37 200
+exp_ring_knob21 192 0 66 37 210
+exp_ring_knob22 192 0 66 37 220
+exp_ring_knob23 192 0 66 37 230
+exp_ring_knob24 192 0 66 37 240
+exp_ring_knob25 192 0 66 37 250
+exp_ring_knob26 192 0 66 37 260
+exp_ring_knob27 192 0 66 37 270
+exp_ring_knob28 192 0 66 37 280
+exp_ring_knob29 192 0 66 37 290
+exp_ring_knob30 192 0 66 37 300
+exp_ring_knob31 192 0 66 37 310
+exp_ring_knob32 192 0 66 37 320
+exp_ring_knob33 192 0 66 37 330
+exp_ring_knob34 192 0 66 37 340
+exp_ring_knob35 192 0 66 37 350
+exp_dial_shadow -13 -5 130 130
+exp_pill_shadow -13 -5 188 94
+exp_window_shadow -15 -7 108 75
+exp_ridge_hour 12 109
+exp_ridge_minute 12 159
+exp_ridge_second 12 182.93
+exp_ridge_mask 80 63 290 307

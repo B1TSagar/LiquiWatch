@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A round glass watch face with a heart and a pulse: the faces' health panels. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path android:fillColor="#111418" android:pathData="M24,0a24,24 0 1,0 0.01,0z" />
+    <path android:fillColor="#3FA9F5" android:pathData="M24,5a19,19 0 1,0 0.01,0z M24,9a15,15 0 1,1 -0.01,0z" />
+    <path android:fillColor="#66FFFFFF" android:pathData="M24,5.6a18.4,18.4 0 0,0 -15.6,8.7 L10.2,15.3 A15,15 0 0,1 24,9 Z" />
+    <path android:fillColor="#FF5C70" android:pathData="M24,33 L15.5,24.6 C12.8,21.9 13.6,17 17.6,16.4 C20.1,16 22.4,17.4 24,19.6 C25.6,17.4 27.9,16 30.4,16.4 C34.4,17 35.2,21.9 32.5,24.6 Z" />
+</vector>

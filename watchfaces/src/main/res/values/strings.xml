@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="theme_label">Colour</string>
+    <string name="theme_blue">Blue</string>
+    <string name="theme_coral">Coral</string>
+    <string name="theme_mint">Mint</string>
+    <string name="theme_lilac">Lilac</string>
+    <string name="theme_gold">Gold</string>
+
+    <string name="backdrop_label">Backdrop</string>
+    <string name="backdrop_gold">Gold</string>
+    <string name="backdrop_ocean">Ocean</string>
+    <string name="backdrop_ember">Ember</string>
+    <string name="backdrop_violet">Violet</string>
+    <string name="backdrop_forest">Forest</string>
+    <string name="backdrop_black">Black</string>
+
+    <string name="compass_label">Compass</string>
+    <string name="readout_label">Compass panel</string>
+    <string name="heart_label">Heart rate panel</string>
+    <string name="steps_label">Steps panel</string>
+    <string name="date_label">Date panel</string>
+    <string name="bezel_label">Compass bezel</string>
+    <string name="art_label">Album art</string>
+    <string name="progress_label">Song progress</string>
+    <string name="colour_label">Album colour</string>
+</resources>

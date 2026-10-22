@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-feature android:name="android.hardware.type.watch" />
+
+    <!-- A tick on the wrist when a face panel turns its page, and at N, E, S and W. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- The live compass for the watch faces: reading the compass while the screen is on needs a
+         foreground service (it shows an ongoing notification), started again after a restart. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Cover Display (the music app): it says what's playing, for the Expedition face's date
+         pill, and a tap on the pill opens its Now Playing; the live compass keeps its watch app
+         from being frozen while a face shows the compass (its FaceKeeperService). -->
+    <queries>
+        <package android:name="com.coverflow.app" />
+    </queries>
+
+    <!-- The compass (magnetometer). Optional, so watches without one still install the app. -->
+    <uses-feature
+        android:name="android.hardware.sensor.compass"
+        android:required="false" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@drawable/ic_compass_app"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.FaceCompanion">
+
+        <uses-library
+            android:name="com.google.android.wearable"
+            android:required="false" />
+
+        <!-- A system trace recorded over adb (tools/trace) may show this app's own marks (each
+             heading and page it hands the faces), also from a release build. -->
+        <profileable android:shell="true" />
+
+        <!-- The compass and the panels' pages work on their own; the health readings need the phone half. -->
+        <meta-data
+            android:name="com.google.android.wearable.standalone"
+            android:value="true" />
+
+        <!--
+            The live compass. Exported so the watch faces (and any face showing the compass
+            complication) can open it; also in the app list as "Compass". In a process of its own:
+            what it takes to draw (its glass, its card) is given back once it's left, rather than
+            kept by the app's main process, which runs all the while a face shows the compass.
+        -->
+        <activity
+            android:name=".compass.CompassActivity"
+            android:process=":compass"
+            android:exported="true"
+            android:icon="@drawable/ic_compass_app"
+            android:label="@string/compass_name"
+            android:launchMode="singleTop"
+            android:taskAffinity="com.liquiwatch.companion.compass">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+            The compass for watch faces: hands faces the heading (0-360) to turn a needle or
+            bezel by, which they can't read themselves. The LiquiWatch faces use it by default.
+        -->
+        <service
+            android:name=".compass.CompassComplicationService"
+            android:exported="true"
+            android:icon="@drawable/ic_compass"
+            android:label="@string/compass_name"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data
+                android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+                android:value="RANGED_VALUE,SHORT_TEXT" />
+            <!-- The LiquiWatch faces may show this as soon as they're picked, before the wearer
+                 grants them complication data (only those three: other faces still ask). -->
+            <meta-data
+                android:name="android.support.wearable.complications.SAFE_WATCH_FACES"
+                android:value="com.liquiwatch.face.expedition,com.liquiwatch.face.liquid,com.liquiwatch.face.covers" />
+            <!-- Pushed by the live compass as the heading changes, never on a schedule: the system
+                 saves up the updates it owes while the screen is off and asks for them all as it
+                 comes on, just when the face is busiest. -->
+            <meta-data
+                android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+                android:value="0" />
+        </service>
+
+        <!--
+            The live compass: while a watch face shows the Compass complication, reads the compass
+            whenever the screen is on and hands the face each new heading as the wrist turns.
+        -->
+        <service
+            android:name=".compass.LiveCompassService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Live compass heading for the watch face's compass complication while the screen is on" />
+        </service>
+        <receiver
+            android:name=".compass.LiveCompassStarter"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+            The Expedition face's four panels: each one's page (tapping a panel turns it) and the
+            readings the face can't get itself. Updated as pages turn and as readings arrive that
+            change what they show, never on a schedule (see the compass above).
+        -->
+        <service
+            android:name=".panels.HeartPanelService"
+            android:exported="true"
+            android:icon="@drawable/ic_compass"
+            android:label="@string/heart_panel_name"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data
+                android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+                android:value="RANGED_VALUE" />
+            <!-- The LiquiWatch faces may show this as soon as they're picked, before the wearer
+                 grants them complication data (only those three: other faces still ask). -->
+            <meta-data
+                android:name="android.support.wearable.complications.SAFE_WATCH_FACES"
+                android:value="com.liquiwatch.face.expedition,com.liquiwatch.face.liquid,com.liquiwatch.face.covers" />
+            <meta-data
+                android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+                android:value="0" />
+        </service>
+        <service
+            android:name=".panels.StepsPanelService"
+            android:exported="true"
+            android:icon="@drawable/ic_compass"
+            android:label="@string/steps_panel_name"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data
+                android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+                android:value="RANGED_VALUE" />
+            <!-- The LiquiWatch faces may show this as soon as they're picked, before the wearer
+                 grants them complication data (only those three: other faces still ask). -->
+            <meta-data
+                android:name="android.support.wearable.complications.SAFE_WATCH_FACES"
+                android:value="com.liquiwatch.face.expedition,com.liquiwatch.face.liquid,com.liquiwatch.face.covers" />
+            <meta-data
+                android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+                android:value="0" />
+        </service>
+        <service
+            android:name=".panels.CompassPanelService"
+            android:exported="true"
+            android:icon="@drawable/ic_compass"
+            android:label="@string/compass_panel_name"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data
+                android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+                android:value="RANGED_VALUE" />
+            <!-- The LiquiWatch faces may show this as soon as they're picked, before the wearer
+                 grants them complication data (only those three: other faces still ask). -->
+            <meta-data
+                android:name="android.support.wearable.complications.SAFE_WATCH_FACES"
+                android:value="com.liquiwatch.face.expedition,com.liquiwatch.face.liquid,com.liquiwatch.face.covers" />
+            <!-- The live compass updates its reading as the heading changes. -->
+            <meta-data
+                android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+                android:value="0" />
+        </service>
+        <service
+            android:name=".panels.DatePanelService"
+            android:exported="true"
+            android:icon="@drawable/ic_compass"
+            android:label="@string/date_panel_name"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data
+                android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+                android:value="RANGED_VALUE" />
+            <!-- The LiquiWatch faces may show this as soon as they're picked, before the wearer
+                 grants them complication data (only those three: other faces still ask). -->
+            <meta-data
+                android:name="android.support.wearable.complications.SAFE_WATCH_FACES"
+                android:value="com.liquiwatch.face.expedition,com.liquiwatch.face.liquid,com.liquiwatch.face.covers" />
+            <meta-data
+                android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+                android:value="0" />
+        </service>
+
+        <!-- A tap on a panel (the panels' complications point their tap here). -->
+        <receiver
+            android:name=".panels.PageTapReceiver"
+            android:exported="false" />
+
+        <!-- Cover Display says what's playing (only its own broadcasts are taken: NowPlaying). -->
+        <receiver
+            android:name=".panels.NowPlayingReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.liquiwatch.action.NOW_PLAYING" />
+            </intent-filter>
+        </receiver>
+
+        <!-- The phone half's Samsung Health readings, weather and battery, as they arrive (each
+             sent when the watch asks: only while a page showing it is up). -->
+        <service
+            android:name=".health.HealthListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
+                <data
+                    android:host="*"
+                    android:path="/face/health"
+                    android:scheme="wear" />
+                <data
+                    android:host="*"
+                    android:path="/face/weather"
+                    android:scheme="wear" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:host="*"
+                    android:path="/face/phone/battery"
+                    android:scheme="wear" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

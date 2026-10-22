@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- The weather on the face's date panel: fetched from Open-Meteo for where the phone is
+         (coarse location is plenty; "Allow all the time" lets it follow the phone in the
+         background, else it keeps to where the phone was when the app was last open). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+    <!-- Not backed up: the prefs hold where the phone was. -->
+    <application
+        android:allowBackup="false"
+        android:icon="@drawable/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- The watch asking for fresh readings, the weather or the phone's battery (only while a
+             face panel shows them: nothing here runs on a schedule). -->
+        <service
+            android:name=".WatchRequestService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:host="*"
+                    android:path="/face/health/request"
+                    android:scheme="wear" />
+                <data
+                    android:host="*"
+                    android:path="/face/weather/request"
+                    android:scheme="wear" />
+                <data
+                    android:host="*"
+                    android:path="/face/phone/battery/request"
+                    android:scheme="wear" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>
