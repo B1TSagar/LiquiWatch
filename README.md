@@ -2,6 +2,13 @@
 
 Watch faces in liquid glass for Galaxy Watch, and their companion app.
 
+<p align="center">
+  <img src="docs/expedition.png" width="250" alt="The Expedition face at 10:10">
+  <img src="watchfaces/src/liquid/res/drawable-nodpi/preview.png" width="250" alt="The Liquid face">
+  <img src="watchfaces/src/coverflow/res/drawable-nodpi/preview.png" width="250" alt="The Covers face">
+</p>
+<p align="center"><sub>Expedition, on a Galaxy Watch4 Classic on its charger (the icon at 12 o'clock and the dot at 9 are the watch's own); Liquid and Covers, as their previews show them</sub></p>
+
 | Module | What it is |
 |---|---|
 | `watchfaces/` | The three faces, in Google's Watch Face Format (XML only, no code). One build variant per face. |
@@ -37,6 +44,9 @@ Each one shows your heart rate, your steps toward your daily goal, the date, the
   - **It follows Cover Display:** while a song plays, the background becomes that song's cover, blurred. A second and a half after the music pauses or stops, the face goes back to its own backdrop. Where to tap for what is under *Where to tap* below.
 - **Liquid** (`liquid`): a digital face with a glass time card and a seconds ring.
 - **Covers** (`coverflow`): the time as a cover in the middle of a Cover Flow, with steps and heart rate on the side covers.
+
+<p align="center"><img src="docs/expedition_crossing.png" width="320" alt="The seconds hand passing over a dial"></p>
+<p align="center"><sub>Expedition's seconds hand passing over the 3 o'clock dial, on top of it (three times the size): its glass melts into the dial's rim at both edges, and the dial's glass rises along it.</sub></p>
 
 ### The panels
 
