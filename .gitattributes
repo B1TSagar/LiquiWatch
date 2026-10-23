@@ -1,0 +1,4 @@
+# The wave tools check these by hash, byte for byte: kept exactly as written (no line-ending changes)
+tools/jelly/fronts.txt -text
+tools/jelly/fronts_frames.txt -text
+tools/jelly/waves.txt -text

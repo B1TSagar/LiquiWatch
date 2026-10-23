@@ -12,12 +12,6 @@ use strict; use warnings; local $/; my $s = <STDIN>;
 my %FRAME; { (my $f = __FILE__) =~ s{[^/\\]*$}{frames.txt}; open my $h, '<', $f or die "no $f (run ring_glass.ps1)\n";
   local $/ = "\n"; for (<$h>) { my ($n, @v) = split; $FRAME{$n} = \@v if $n } }
 sub fmt { my $v = sprintf "%.3f", $_[0]; $v =~ s/\.?0+$//; $v = 0 if $v eq '-0'; $v }
-# how far (x, y) is outside the nearest panel, negative inside (the dials, the date pill, the day and night window's
-# dome, as ring_glass.ps1 draws them)
-sub panel_d { my ($x, $y) = @_; my @d = map { sqrt(($x - $_->[0]) ** 2 + ($y - $_->[1]) ** 2) - 44.5 } [125, 225], [325, 225], [225, 325];
-  my $px = $x < 178 ? 178 : $x > 272 ? 272 : $x; push @d, sqrt(($x - $px) ** 2 + ($y - 135) ** 2) - 26.5;
-  my $dome = sqrt(($x - 225) ** 2 + ($y - 96.5) ** 2) - 33; push @d, $dome > $y - 97.5 ? $dome : $y - 97.5;
-  (sort { $a <=> $b } @d)[0] }
 my $AMB = '<Variant mode="AMBIENT" target="alpha" value="0" />';
 # the element (with all inside it) that starts at $p: [start, end]
 sub span { my $p = shift; my ($tag) = substr($s, $p, 40) =~ /^<(\w+)/ or die "no element at $p\n";
@@ -57,6 +51,35 @@ $s =~ s{<ListOption id="(\w+)">((?:(?!</ListOption>).)*?<Ellipse x="86\.1"[^>]*>
   "<ListOption id=\"$id\">$body</ListOption>" }gse;
 die "the panels' colours weren't found\n" unless keys %PANEL == 6;
 die "the tube's smoke wasn't found ($smoke)\n" unless $smoke == 84;
+# The panels' glass takes the accent on the side the light comes from: tint.py's pictures, white with the tint in
+# their alpha (deepest at the edge at the top left, fading smoothly a good way into the glass), in place of the bands
+# of smoke round each panel's edge (the shapes the album's copy draws in the panels' shade, in every backdrop's copy
+# too), each tinted that copy's shade: the album's (worked out, as the bands were) or the backdrop's own. The hour
+# beads get it too, with the dials. (After the tube's smoke has taken the panels' shade: its rings aren't bands.)
+{ my %band = map { $_ => 1 } grep { !(/^Ellipse x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"$/ && tube_ring($1, $2, $3, $4)) }
+    $s =~ /<((?:Ellipse|RoundRectangle|Arc) [^>]*)>\s*<(?:Stroke|Fill) color="#[0-9A-F]{8}"[^>]*>\s*<Transform target="color" value="colorArgb\(\d+, \(\[REFERENCE\.glass_r\]/g;
+  die "the panels' bands of smoke weren't found (" . (keys %band) . " shapes)\n" unless keys %band == 28;
+  my @beads = $s =~ m{<PartImage x="(\d+)" y="(\d+)" width="25" height="25"><Variant mode="AMBIENT" target="alpha" value="\d+" /><Image resource="exp_bead" />}g;
+  die "the hour beads weren't found (or not 11: " . @beads / 2 . ")\n" unless @beads == 22;
+  my $pic = sub { my ($n, $x, $y, $w, $h, $tint) = @_; my $fixed = $tint =~ /^#/;
+    "<PartImage x=\"$x\" y=\"$y\" width=\"$w\" height=\"$h\"" . ($fixed ? " tintColor=\"$tint\"" : '') . ">$AMB" . ($fixed ? '' : "<Transform target=\"tintColor\" value=\"$tint\" />") . "<Image resource=\"$n\" /></PartImage>" };
+  my ($drawn, $pics) = (0, 0);
+  # each drawing with bands in it: its bands out (the drawing too, if that leaves it empty), the tint after it
+  $s =~ s{(<PartDraw x="(\d+)" y="(\d+)" width="\d+" height="\d+">)(.*?)</PartDraw>}{
+    my ($all, $head, $x, $y, $in) = ($&, $1, $2, $3, $4); my ($n, $tint, %kind) = (0);   # (before the match below takes $&)
+    $in =~ s{<((?:Ellipse|RoundRectangle|Arc) [^>]*)>\s*<(Stroke|Fill) color="#([0-9A-F]{2})([0-9A-F]{6})"[^>]*?(?:/>|>(?:\s*<Transform target="color" value="([^"]*)" />)?\s*</\2>)\s*</(?:Ellipse|RoundRectangle|Arc)>}{
+      if ($band{$1}) { $n++; my $shape = $1; my $t = $5 ? $5 =~ s/^colorArgb\(\d+, /colorRgb(/r : "#FF$4"; $tint //= $t;
+        die "a panel's bands in two shades in one drawing\n" if $tint ne $t;
+        $kind{ $shape =~ /^Ellipse/ ? 'dial' : $shape =~ /centerX="39"|^RoundRectangle x="(?:11\.78|10\.71|9\.79|8\.72)"/ ? 'window' : 'pill' } = 1; '' } else { $& } }gse;
+    if (!$n) { $all } else { $drawn += $n;
+      my $tints = join '', ($kind{dial} ? (map { $pic->('exp_tint_dial', @$_, 104, 104, $tint) } [73, 173], [273, 173], [173, 273]) : ()),
+        ($kind{pill} ? $pic->('exp_tint_pill', 144, 101, 162, 68, $tint) : ()),
+        ($kind{dial} ? (map { $pic->('exp_tint_bead', $beads[2 * $_], $beads[2 * $_ + 1], 25, 25, $tint) } 0 .. 10) : ()),
+        ($kind{window} ? $pic->('exp_tint_window', $x, $y, 78, 45, $tint) : ());   # (the window's drawing sits where its pictures do)
+      $pics += () = $tints =~ /<PartImage /g;
+      ($in =~ /<(?:Ellipse|RoundRectangle|Arc|Line|Rectangle)\b/ ? "$head$in</PartDraw>" : '') . $tints } }gse;
+  die "the panels' bands weren't all taken out ($drawn of 196)\n" unless $drawn == 196;
+  die "the panels' tint went in $pics times, not 7 x 16\n" unless $pics == 7 * 16 }
 my $rings = 0;
 $s =~ s{<Ellipse x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)">(\s*<Stroke color="([^"]*)" thickness=")([\d.]+)"}{
   my ($x, $y, $w, $h, $mid, $col, $t) = ($1, $2, $3, $4, $5, $6, $7); my $r = $w / 2;
@@ -126,14 +149,14 @@ my $crisp;   # the line inside the knob (below)
     $t =~ s{<Arc centerX="[^"]*" centerY="[^"]*"}{'<Arc centerX="' . (225 - $x) . '" centerY="225"'}ge;
     $t =~ s{<Transform target="endAngle" value="\Q$P1\E" />}{'<Transform target="endAngle" value="' . $step->($q) . "\">$GLIDE</Transform>"}ge; $t };
   substr($s, $l->[1], 0) = $copy->('song_tip_', 0, $tip->(0)) . $copy->('song_tip_', 1, $tip->(1));
-  # Inside the knob the line shows crisp, as through Cover Display's knob, which is a clear lens (and magnifies
-  # it a little: 5 px, from 4): its core stroke, in its colours, from 4 degrees back (or 12 o'clock, if the song
+  # Inside the knob the line shows crisp, as through Cover Display's knob, which is a clear lens (at the line's
+  # own width, 4 px: it doesn't magnify it): its core stroke, in its colours, from 4 degrees back (or 12 o'clock, if the song
   # is nearer it than that) to the knob's middle, where the line ends, in the knob's box.
   ($crisp = $line) =~ s{<PartDraw x="[^"]*" y="[^"]*" width="[^"]*" height="[^"]*">(<Variant [^>]*/>)?(.*?)</PartDraw>}{
     my ($amb, $in) = ($1 // '', $2); my ($core) = $in =~ m{(<Arc (?:(?!</Arc>).)*?thickness="2\.8"(?:(?!</Arc>).)*</Arc>)}s or die "no core stroke in the line\n";
     $core =~ s{^<Arc centerX="[^"]*" centerY="[^"]*" (width="[^"]*" height="[^"]*") startAngle="0" endAngle="0\.01">}{sprintf '<Arc centerX="%d" centerY="225" %s startAngle="356" endAngle="360">', 225 - $x, $1}e
       && $core =~ s{<Transform target="endAngle" value="[^"]*" />}{<Transform target="startAngle" value="(360 - clamp($P, 0, 4))" />}
-      && $core =~ s{thickness="2\.8" cap="ROUND"}{thickness="5" cap="BUTT"} or die "the line's core stroke isn't as it should be\n";
+      && $core =~ s{thickness="2\.8" cap="ROUND"}{thickness="4" cap="BUTT"} or die "the line's core stroke isn't as it should be\n";
     "<PartDraw x=\"0\" y=\"0\" width=\"$w\" height=\"226\">$amb$core</PartDraw>" }gse;
   die "the line inside the knob isn't in 7 colours\n" unless 7 == (() = $crisp =~ /<PartDraw /g) }
 
@@ -231,23 +254,7 @@ my $shadows = '';
     my $frame = 'x="' . (41 + $x - $bx) . '" y="' . (41 + $y - $m - $by) . "\" width=\"$w\" height=\"" . ($h + $m) . '" pivotX="0.5" pivotY="' . sprintf('%.9f', ($row + $m) / ($h + $m)) . '"';
     my $lit = sub { my $in = shift; join '', map { "<Condition><Expressions><Expression name=\"c0\">((round(($turn) / 10) % 36) == $_)</Expression></Expressions><Compare expression=\"c0\">"
       . $in->(sprintf('exp_ridge_%s_%02d', $n, $_)) . '</Compare></Condition>' } 0 .. 35 };
-    $add .= $lit->(sub { "<PartImage $frame><Transform target=\"angle\" value=\"$turn\" /><Image resource=\"$_[0]\" /></PartImage>" });
-    next unless $n eq 'second';
-    # The waves: at each tick while the second hand is over a panel, the panel's glass it pushed runs on ahead of
-    # it, risen as under the hand (its picture, as high), across the panel from edge to edge, 20 degrees on over the
-    # second, sinking as it goes until it's gone. Two take turns by the second, as the song's knob does, and only
-    # while the hand is over a panel (when the edges' waves have the face drawing anyway); they run a little ahead of
-    # the hand, so as not to stand on its own risen glass.
-    my @on = grep { my $ang = (6 * $_ + 0.26) * atan2(1, 1) / 45; grep { panel_d(225 + $_ * sin($ang), 225 - $_ * cos($ang)) < -6 } 40 .. 178 } 0 .. 59;
-    my @runs; for (@on) { if (@runs && $runs[-1][1] == $_ - 1) { $runs[-1][1] = $_ } else { push @runs, [$_, $_] } }
-    my $over = join ' || ', map { "(([SECOND] &gt;= $_->[0]) &amp;&amp; ([SECOND] &lt;= $_->[1]))" } @runs;
-    die "the second hand is never over a panel\n" unless @runs;
-    my $inner = 'x="0" y="0" width="' . $w . '" height="' . ($h + $m) . '" pivotX="0.5" pivotY="' . sprintf('%.9f', ($row + $m) / ($h + $m)) . '"';
-    $add .= join '', map { my $go = "(((([SECOND] % 2) == $_) &amp;&amp; ($over)))";
-      "<Group name=\"wave_$_\" $frame alpha=\"0\">$AMB<Transform target=\"alpha\" value=\"($go ? 255 : 0)\" /><Transform target=\"angle\" value=\"($turn + 2)\" />"
-      . "<Group $inner alpha=\"255\">$AMB<Transform target=\"angle\" value=\"($go ? 20 : 0)\"><Animation duration=\"1\" interpolation=\"CUBIC_BEZIER\" controls=\"0.2 0.6 0.4 1\" fps=\"8\" /></Transform>"
-      . "<Transform target=\"alpha\" value=\"($go ? 0 : 255)\"><Animation duration=\"1\" interpolation=\"LINEAR\" fps=\"8\" /></Transform>"
-      . $lit->(sub { "<PartImage x=\"0\" y=\"0\" width=\"$w\" height=\"" . ($h + $m) . "\"><Image resource=\"$_[0]\" /></PartImage>" }) . '</Group></Group>' } 0, 1 }
+    $add .= $lit->(sub { "<PartImage $frame><Transform target=\"angle\" value=\"$turn\" /><Image resource=\"$_[0]\" /></PartImage>" }) }
   $add .= "<PartImage x=\"0\" y=\"0\" width=\"$bw\" height=\"$bh\" blendMode=\"DST_IN\"><Image resource=\"exp_ridge_mask\" /></PartImage></Group>";
   substr($s, index($s, '<Group name="cache_hands"'), 0) = $add . $shadows }
 # The hands pass over the panels, on top of them: their glass and smoke, which stopped at the panels (the glass
@@ -261,11 +268,12 @@ my $shadows = '';
 # under all the panels (so one doesn't shade the next), each placed from its panel's pictures' corner.
 { my $c = index($s, '<Group name="cache_panels"'); die "no panels\n" if $c < 0; my $in = index($s, '>', $c) + 1; my $add = '';
   for (['dial', 73, 173], ['dial', 273, 173], ['dial', 173, 273], ['pill', 144, 101], ['window', 186, 58]) { my ($n, $px, $py) = @$_;
-    die "the $n isn't where its shadow goes ($px, $py)\n" unless index($s, "<PartImage x=\"$px\" y=\"$py\"") > $c;
+    die "the $n isn't where its shadow goes ($px, $py)\n" unless index($s, "<PartImage x=\"$px\" y=\"$py\"", $c) > $c;   # (its tint, under the glass, sits there too)
     my ($x, $y, $w, $h) = @{ $FRAME{"exp_${n}_shadow"} // die "no frame for the ${n}'s shadow (run ring_glass.ps1)\n" };
     $add .= '<PartImage x="' . ($px + $x) . '" y="' . ($py + $y) . "\" width=\"$w\" height=\"$h\">$AMB<Image resource=\"exp_${n}_shadow\" /></PartImage>" }
   substr($s, $in, 0) = $add }
 
+my $BEAD = 110;   # how much of the hour beads' own bright ring shows under their glass (of 255)
 # ---- the hour beads: the panels' glass over them ----------------------------------------------------
 # ring_glass.ps1's picture of it (milky, lit from the top left, a small shadow) over each bead, after them all
 # in the ring's layer and not on their Conditions: it stays while a bead gives way to its melt into the second
@@ -273,12 +281,35 @@ my $shadows = '';
 { my $r = span(index($s, '<Group name="cache_ring"')); my $end = $r->[1] - length('</Group>');
   my @at = substr($s, $r->[0], $end - $r->[0]) =~ m{<PartImage x="(\d+)" y="(\d+)" width="25" height="25"><Variant mode="AMBIENT" target="alpha" value="\d+" /><Image resource="exp_bead" />}g;
   die "the hour beads weren't found (or not 11: " . @at / 2 . ")\n" unless @at == 22;
-  substr($s, $end, 0) = join '', map { "<PartImage x=\"$at[2 * $_]\" y=\"$at[2 * $_ + 1]\" width=\"25\" height=\"25\">$AMB<Image resource=\"exp_bead_glass\" /></PartImage>" } 0 .. 10 }
+  substr($s, $end, 0) = join '', map { "<PartImage x=\"$at[2 * $_]\" y=\"$at[2 * $_ + 1]\" width=\"25\" height=\"25\">$AMB<Image resource=\"exp_bead_glass\" /></PartImage>" } 0 .. 10;
+  # (and their own bright ring, the hands' glass, dimmed under it, so they look as the panels do)
+  my $dim = $s =~ s{(<PartImage x="\d+" y="\d+" width="25" height="25")(><Variant mode="AMBIENT" target="alpha" value="\d+" /><Image resource="exp_bead" />)}{$1 alpha="$BEAD"$2}g;
+  die "the hour beads weren't dimmed (or not 11: $dim)\n" unless $dim == 11 }
+
+# ---- the glass bending what's behind it ---------------------------------------------------------------
+# refract.py's: the backdrops as seen through the glass that sits on them, in place of the lenses (which bent only
+# the dials' and the pill's backdrop, and magnified it); and the album art bent the same way as the watch draws it:
+# a copy of it in each dial's, the pill's and each bead's box, shrunk about the glass's middle so its edge shows
+# what lies beyond it, cut to the glass's rim by refract.py's picture of it (refract.txt says where each goes).
+{ my $r = span(index($s, '<ListConfiguration id="bg">')); my $bg = substr($s, $r->[0], $r->[1] - $r->[0]);
+  my $n = $bg =~ s{resource="bg_(\w+)"}{resource="exp_bg_$1"}g; die "the backdrops aren't 5 ($n)\n" unless $n == 5;
+  substr($s, $r->[0], $r->[1] - $r->[0]) = $bg;
+  for my $part (qw(heart steps readout date)) { my $q = index($s, "resource=\"lens_gold_$part\""); cut("the ${part}'s lens", $q < 0 ? -1 : around('ListConfiguration', $q)) }
+  die "a lens is left\n" if $s =~ /resource="lens_/;
+  (my $f = __FILE__) =~ s{[^/\\]*$}{refract.txt}; open my $h, '<', $f or die "no $f (run refract.py)\n";
+  my @copy = map { [split] } grep { /^copy / } do { local $/ = "\n"; <$h> }; die "not 15 copies of the album art\n" unless @copy == 15;
+  for my $type (qw(SMALL_IMAGE PHOTO_IMAGE)) { my $art = "<PartImage x=\"0\" y=\"0\" width=\"450\" height=\"450\"><Image resource=\"[COMPLICATION.$type]\" /></PartImage>";
+    my $i = 0; my $k = lc substr($type, 0, 1);
+    my $n = $s =~ s{\Q$art\E}{$art . join '', map { my (undef, $m, $gx, $gy, $gw, $gh, $x, $y, $w, $h) = @$_; $i++;
+      "<Group name=\"bent_${k}$i\" x=\"$gx\" y=\"$gy\" width=\"$gw\" height=\"$gh\"><PartImage x=\"$x\" y=\"$y\" width=\"$w\" height=\"$h\"><Image resource=\"[COMPLICATION.$type]\" /></PartImage>"
+      . "<PartImage x=\"0\" y=\"0\" width=\"$gw\" height=\"$gh\" blendMode=\"DST_IN\"><Image resource=\"$m\" /></PartImage></Group>" } @copy}e;
+    die "the album art ($type) wasn't found, or more than once ($n)\n" unless $n == 1 } }
 
 # ---- checks ----------------------------------------------------------------------------------------
 for my $e ($s =~ /(?:value="|<Expression name="[^"]*">)([^"<]*)/g) { my $o = () = $e =~ /\(/g; my $c = () = $e =~ /\)/g; die "brackets don't balance: $e\n" if $o != $c }
 die "a fraction of a pixel: $1\n" if $s =~ /(<(?:Group|PartImage|PartDraw) [^>]*\b(?:x|y|width|height)="-?\d*\.\d+")/;
 { (my $dir = __FILE__) =~ s{[^/\\]*$}{}; $dir .= '../../watchfaces/src/expedition/res/drawable-nodpi/';
-  for my $n ($s =~ /resource="(exp_ring_[a-z0-9]+|exp_[a-z]+_shadow|exp_ridge_[a-z0-9_]+|exp_[a-z]+_mask_top|exp_bead_glass)"/g) { die "no picture $n (run ring_glass.ps1)\n" unless -e "$dir$n.png" } }
+  for my $n ($s =~ /resource="(exp_ring_[a-z0-9]+|exp_[a-z]+_shadow|exp_ridge_[a-z0-9_]+|exp_[a-z]+_mask_top|exp_bead_glass)"/g) { die "no picture $n (run ring_glass.ps1)\n" unless -e "$dir$n.png" }
+  for my $n ($s =~ /resource="(exp_bg_[a-z]+|exp_refr_[a-z]+)"/g) { die "no picture $n (run refract.py)\n" unless -e "$dir$n.png" } }
 print $s;
 printf STDERR "tube smoke in the panels' shade %d, tube rings moved %d, compass parts taken out (%d bytes), progress lines %d\n", $smoke, $rings, $gone, $lines;

@@ -1,19 +1,18 @@
 # Usage: perl tools/jelly/jelly.pl < tools/ring/expedition_source.xml | perl tools/ring/ring.pl > watchface.xml
-#   (the Expedition face as it was, before ring.pl made it over: see ring.pl; STATIC=1 for a check)
+#   (the Expedition face as it was, before ring.pl made it over: see ring.pl; PLAN=1 plans the waves)
 # The glass as liquid in a flexible skin. At each tick while the seconds hand crosses a glass element,
-# a bulge of the glass's own edge runs from where the hand crosses it to where the hand will leave,
-# sinking and fading before it gets there; as the hand leaves a dial, two run back round to where it
-# came in. A tap on a panel sends two from its top and two from its bottom, fading as they meet at
-# the sides. The bulge pictures are the glass itself risen (bulges.ps1). Any bulges the face already
-# has are taken out first, so this can be run on the face as it is. With STATIC=1 every stretch of the
-# runs (the taps' and those back round a dial) is drawn still at its middle instead, to check on the
-# watch that each sits on its edge.
+# a bulge of the glass's own edge sets off from where the hand crosses it toward where the hand will leave,
+# getting smaller and fading as it nears the end, a wave of risen glass between each two; as the hand leaves
+# a dial, two run back round to where it came in, a wave between them. A tap on a panel sends a ring
+# out from its centre. The bulge pictures are the glass itself risen (bulges.ps1). Any bulges the face
+# already has are taken out first, so this can be run on the face as it is.
 use strict; use warnings; local $/; my $s = <STDIN>;
 my $PI = 4 * atan2(1, 1);
 sub fmt { my $v = sprintf "%.3f", $_[0]; $v =~ s/\.?0+$//; $v = 0 if $v eq '-0'; $v }
 # Groups and pictures take whole-pixel positions only (a fraction drops the element on the watch).
 sub ip { my $v = shift; int($v + ($v < 0 ? -0.5 : 0.5)) }
 use POSIX ();
+use List::Util qw(sum0);
 sub rad_of { $_[0] * 4 * atan2(1, 1) / 180 }
 sub clampn { my ($v, $lo, $hi) = @_; $v < $lo ? $lo : $v > $hi ? $hi : $v }
 sub acosd { atan2(sqrt(1 - $_[0] * $_[0]), $_[0]) * 45 / atan2(1, 1) }
@@ -24,23 +23,16 @@ for my $name (qw(jelly_heart jelly_steps jelly_readout jelly_pill jelly_window j
   pos($s) = $p; my $d = 0;
   while ($s =~ /<(\/?)Group\b[^>]*?(\/?)>/g) { next if $2; $d += $1 ? -1 : 1; if ($d == 0) { substr($s, $p, $+[0] - $p) = ''; last } } }
 
-# ---- curves: the even ease round the edge, and the alpha curves (a value going 0 -> 1) ----------
+# ---- curves: the even ease round the edge, and the fade -----------------------------------------
 my @EASE = (0.4, 0, 0.6, 1);
 sub bez { my ($u, $p1, $p2) = @_; 3 * (1 - $u) ** 2 * $u * $p1 + 3 * (1 - $u) * $u ** 2 * $p2 + $u ** 3 }
-sub ease_time { my $p = shift; return 0 if $p <= 0; return 1 if $p >= 1;   # when the ease reaches progress p
-  my ($lo, $hi) = (0, 1); for (1 .. 60) { my $m = ($lo + $hi) / 2; if (bez($m, $EASE[1], $EASE[3]) < $p) { $lo = $m } else { $hi = $m } }
-  bez(($lo + $hi) / 2, $EASE[0], $EASE[2]) }
 # An alpha transform rests at this when its bulge has run: -1, clamped to nothing (a fraction stops the
-# face drawing at all). The curves overshoot it the other way, far enough to show full.
+# face drawing at all). The fade overshoots it the other way, far enough to show full.
 my $ON = -1;
 my $FADE = '0 ' . fmt(900 / $ON) . ' 0.6 0';   # full about half the way, then fading slowly to nothing
-my $K = 3000 / $ON;               # steep enough that a window opens and shuts within a frame
-sub until_curve { my $t = shift; join ' ', '0.333333', $K, '0.666667', fmt($K * (1 - 1 / $t)) }   # shown until t
-sub from_curve  { my $t = shift; join ' ', '0.333333', -$K, '0.666667', fmt($K * (1 - $t) / $t) } # shown from t
-my $FPS = 16;   # the bulges' frame rate: while one runs the watch works the whole face out each frame (12 looked jerky)
+my $FPS = 16;   # the snap backs' and the tap rings' frame rate: while one runs the watch works the whole face out each frame (12 looked jerky)
 my $AMB = '<Variant mode="AMBIENT" target="alpha" value="0" />';
 sub anim { my ($d, $c, $f) = @_; "<Animation duration=\"$d\" interpolation=\"CUBIC_BEZIER\" controls=\"$c\" fps=\"" . ($f // $FPS) . "\" />" }
-sub xform { my ($target, $w, $a, $b, $d, $c) = @_; "<Transform target=\"$target\" value=\"($w ? " . fmt($b) . " : " . fmt($a) . ")\">" . anim($d, $c) . "</Transform>" }
 
 # ---- pictures: size and the reference point (circle centre / edge point) in them, as bulges.ps1 prints
 my %PIC = (
@@ -51,99 +43,115 @@ my %PIC = (
   win_cap   => [qw(exp_window_bulge_cap 40 16 20.5 37.5)],
   win_line  => [qw(exp_window_bulge_line 42 15 21.2 5.5)],
 );
-my $objects = 0;
-
-# One stretch of a bulge's way, shown while the way's progress is in [p0, p1]: its motion is linear
-# in the ease, so the same curve carries every stretch; outside its window it runs on unseen (a group
-# doesn't cut off what lies outside it, so each stretch is shown only in its window).
-#   arc:  [arc => pic, cx, cy, r, from, to]     angles clockwise from 12
-#   line: [line => pic, y, x_from, x_to, turn]  turn 0 (facing up) or 180 (facing down)
-sub seg_len { my $g = shift; $g->[0] eq 'arc' ? abs($g->[5] - $g->[6]) * $PI / 180 * $g->[4] : abs($g->[4] - $g->[3]) }
-sub stretch { my ($w, $d, $g, $L0, $L1, $Lp) = @_; $objects++;
-  my ($t0, $t1) = (ease_time($L0 / $Lp), ease_time($L1 / $Lp));
-  my ($name, $pw, $ph, $rx, $ry) = @{ $PIC{ $g->[1] } };
-  my $at = sub { my ($from, $to) = @_; ($from + ($to - $from) * (0 - $L0) / ($L1 - $L0), $from + ($to - $from) * ($Lp - $L0) / ($L1 - $L0)) };
-  my $leaf_alpha = $t0 > 0.001 ? '<Transform target="alpha" value="(' . $w . " ? $ON : 0)\">" . anim($d, from_curve($t0)) . '</Transform>' : '';
-  my $until = $t1 < 0.999 ? sub { my ($W, $H, $in) = @_; "<Group x=\"0\" y=\"0\" width=\"$W\" height=\"$H\" alpha=\"0\">$AMB<Transform target=\"alpha\" value=\"($w ? $ON : 0)\">" . anim($d, until_curve($t1)) . "</Transform>$in</Group>" } : sub { $_[2] };
-  my $fade = sub { my ($x, $y, $W, $H, $in) = @_; "<Group x=\"" . ip($x) . "\" y=\"" . ip($y) . "\" width=\"$W\" height=\"$H\" alpha=\"0\">$AMB<Transform target=\"alpha\" value=\"($w ? $ON : 0)\">" . anim($d, $FADE) . "</Transform>$in</Group>" };
-  if ($ENV{STATIC}) {
-    if ($g->[0] eq 'arc') { my $S = 70; my $m = ($g->[5] + $g->[6]) / 2;
-      return "<Group x=\"" . ip($g->[2] - $S) . "\" y=\"" . ip($g->[3] - $S) . "\" width=\"140\" height=\"140\" pivotX=\"0.5\" pivotY=\"0.5\" angle=\"" . fmt($m) . "\"><PartImage x=\"" . ip($S - $rx) . "\" y=\"" . ip($S - $ry) . "\" width=\"$pw\" height=\"$ph\"><Image resource=\"$name\" /></PartImage></Group>" }
-    my ($rxx, $ryy) = $g->[5] ? ($pw - $rx, $ph - $ry) : ($rx, $ry); my $m = ($g->[3] + $g->[4]) / 2;
-    return "<PartImage x=\"" . ip($m - $rxx) . "\" y=\"" . ip($g->[2] - $ryy) . "\" width=\"$pw\" height=\"$ph\"" . ($g->[5] ? " pivotX=\"0.5\" pivotY=\"0.5\" angle=\"$g->[5]\"" : '') . "><Image resource=\"$name\" /></PartImage>" }
-  if ($g->[0] eq 'arc') {
-    my ($cx, $cy) = @$g[2, 3];
-    my $S = 1 + int(1 + (sort { $b <=> $a } map { sqrt(($_->[0] - $rx) ** 2 + ($_->[1] - $ry) ** 2) } [0, 0], [$pw, 0], [0, $ph], [$pw, $ph])[0]);
-    my ($a0, $a1) = $at->(@$g[5, 6]);
-    my $leaf = "<PartImage x=\"" . ip($S - $rx) . "\" y=\"" . ip($S - $ry) . "\" width=\"$pw\" height=\"$ph\"" . ($leaf_alpha ? ' alpha="0"' : '') . ">$AMB<Image resource=\"$name\" />$leaf_alpha</PartImage>";
-    my $turn = "<Group x=\"0\" y=\"0\" width=\"" . 2 * $S . "\" height=\"" . 2 * $S . "\" pivotX=\"0.5\" pivotY=\"0.5\" angle=\"" . fmt($a0) . "\">" . xform('angle', $w, $a0, $a1, $d, join(' ', @EASE)) . "$leaf</Group>";
-    return $fade->($cx - $S, $cy - $S, 2 * $S, 2 * $S, $until->(2 * $S, 2 * $S, $turn));
-  }
-  my ($ey, $xf, $xt, $turnDeg) = @$g[2 .. 5];
-  my ($rxx, $ryy) = $turnDeg ? ($pw - $rx, $ph - $ry) : ($rx, $ry);
-  my ($x0, $x1) = $at->($xf, $xt);
-  my ($bx, $bw) = (ip((($xf < $xt) ? $xf : $xt) - $pw), abs($xt - $xf) + 2 * $pw);
-  my ($by, $bh) = (ip($ey - $ph - 2), 2 * $ph + 4);
-  my $leaf = "<PartImage x=\"0\" y=\"0\" width=\"$pw\" height=\"$ph\"" . ($turnDeg ? " pivotX=\"0.5\" pivotY=\"0.5\" angle=\"$turnDeg\"" : '') . ($leaf_alpha ? ' alpha="0"' : '') . ">$AMB<Image resource=\"$name\" />$leaf_alpha</PartImage>";
-  my $move = "<Group x=\"" . ip($x0 - $rxx - $bx) . "\" y=\"" . ip($ey - $ryy - $by) . "\" width=\"$pw\" height=\"$ph\">" . xform('x', $w, $x0 - $rxx - $bx, $x1 - $rxx - $bx, $d, join(' ', @EASE)) . "$leaf</Group>";
-  $fade->($bx, $by, $bw, $bh, $until->($bw, $bh, $move));
-}
-# A bulge's whole way: its stretches one after another.
-sub way { my ($w, $d, @segs) = @_; my $Lp = 0; $Lp += seg_len($_) for @segs; my ($L, $out) = (0, '');
-  for my $g (@segs) { my $l = seg_len($g); $out .= stretch($w, $d, $g, $L, $L + $l, $Lp); $L += $l } $out }
-# A tap: bulges from the top and the bottom, two from each, fading as they meet at the sides.
-sub ring_tap { my ($w, $d, $pic, $cx, $cy, $r) = @_;
-  join '', map { way($w, $d, [arc => $pic, $cx, $cy, $r, $_, $_ + 90]) . way($w, $d, [arc => $pic, $cx, $cy, $r, $_, $_ - 90]) } 0, 180 }
 
 # ---- when -------------------------------------------------------------------------------------
-my $T = '[SECOND]';   # (the quartz face's whole seconds: compared with half seconds below, + 0.0417 changes nothing)
-# Each run goes on a count that only goes up (a step each time it should run), in two copies, one
-# taking the odd steps and one the even: so each step starts one copy's run while the other goes
-# back unseen, at the same moment. (A run on a condition would go back on its own when the condition
-# ended, more animation each time; with all the runs, the face was hardly ever still.)
-sub pair { my $c = shift; ("(($c % 2) &gt; 0.5)", "(($c % 2) &lt; 0.5)") }
-my $NOW = '(([HOUR_0_23] * 60) + [MINUTE])';
-sub each_minute_at { my $sec = shift; "($NOW + (($T &gt;= " . ($sec - 0.5) . ') ? 1 : 0))' }
 # a tap turns the panel's page, so its odd or even (published from its slot, below) flips
 sub tap { my $n = shift; ("([REFERENCE.pg_$n] &gt; 1.5)", "(([REFERENCE.pg_$n] &gt; 0.5) &amp;&amp; ([REFERENCE.pg_$n] &lt; 1.5))") }
 my %when;
-# how long a run takes: the hand's 1.5 s, a tap's 1 s
+# how long a run takes: a snap back's 1.5 s, a tap's 1 s
 my $D = 1.5; my $DT = 1;
 
 # ---- the elements -------------------------------------------------------------------------------
 my %add;
-# the dials: a tap sends bulges round from the top and the bottom
-for (['heart', 125, 225], ['steps', 325, 225], ['readout', 225, 325]) { my ($n, $cx, $cy) = @$_;
-  $add{$n} = join '', map { ring_tap($_, $DT, 'dial', $cx, $cy, 43.5) } tap($n) }
-# the date pill: caps round (178,135) and (272,135), r 25.5; edges at y 109.5 and 160.5
-{ my ($L, $R, $cy, $r, $top, $bot) = (178, 272, 135, 25.5, 109.5, 160.5);
-  # a tap: from the top's middle and the bottom's middle, two bulges from each, fading as they meet at
-  # the ends; the outline measured from the top's middle, clockwise, twice round (so a way may cross
-  # where it starts)
-  my @loop = ([line => 'pill_top', $top, 225, $R, 0], [arc => 'pill_cap', $R, $cy, $r, 0, 180], [line => 'pill_bot', $bot, $R, $L, 180],
-              [arc => 'pill_cap', $L, $cy, $r, 180, 360], [line => 'pill_top', $top, $L, 225, 0]);
-  my $part = sub { my ($g, $f0, $f1) = @_; my @h = @$g;   # the stretch of a piece of outline between two of its fractions
-    if ($h[0] eq 'arc') { @h[5, 6] = map { $g->[5] + ($g->[6] - $g->[5]) * $_ } $f0, $f1 } else { @h[3, 4] = map { $g->[3] + ($g->[4] - $g->[3]) * $_ } $f0, $f1 } \@h };
-  my $along = sub { my ($s0, $s1) = @_; my ($c, @segs) = (0);   # the outline from s0 to s1, either way
-    my ($lo, $hi) = $s0 < $s1 ? ($s0, $s1) : ($s1, $s0);
-    for my $g (@loop, @loop) { my $l = seg_len($g); my ($u, $v) = (($lo > $c ? $lo : $c), ($hi < $c + $l ? $hi : $c + $l));
-      push @segs, ($s1 > $s0 ? $part->($g, ($u - $c) / $l, ($v - $c) / $l) : $part->($g, ($v - $c) / $l, ($u - $c) / $l)) if $v - $u > 0.01; $c += $l }
-    $s1 > $s0 ? @segs : reverse @segs };
-  my $round = 0; $round += seg_len($_) for @loop;
-  my $tap_pill = sub { my $w = shift;
-    join '', map { my $b = $_ + $round; way($w, $DT, $along->($b, $b + $round / 4)) . way($w, $DT, $along->($b, $b - $round / 4)) } 0, $round / 2 };
-  $add{pill} = join '', map { $tap_pill->($_) } tap('pill');
-}
-# (the day and night window, a dome round (225,96.5), r 32, on a flat edge at y 96.5, isn't tapped)
+# (a tap on a dial or the date pill sends a ring out from its centre: see the waves below; the day and night
+# window isn't tapped)
 $add{window} = '';
 
+# ---- the waves: a ridge of risen glass between two bulges, running with them -----------------------
+# The face can't draw a curve that changes as it goes, so each run is an animated picture, a frame each 1/fps s:
+# fronts.ps1 draws its waves from what PLAN=1 writes to fronts.txt, and pack_waves.py draws its two bulges over
+# them, on the picture's own clock (moved by the face on their own, they changed on another eighth of a second
+# from the wave's, now before it and now after), and packs them.
+# CSS-style cubic bezier progress, as the watch eases an animation: the curve's y where its x is tau
+sub curve { my ($tau, $x1, $y1, $x2, $y2) = @_; $tau = clampn($tau, 0, 1); my ($lo, $hi) = (0, 1);
+  for (1 .. 60) { my $m = ($lo + $hi) / 2; if (bez($m, $x1, $x2) < $tau) { $lo = $m } else { $hi = $m } }
+  bez(($lo + $hi) / 2, $y1, $y2) }
+# A bulge's edge g: [arc => pic, cx, cy, r] (its place an angle, clockwise from 12) or [line => pic, y, turn]
+# (its place an x; turn 180: facing down). Where it is at a place on its edge:
+sub where { my ($g, $at) = @_; $g->[0] eq 'arc' ? [$g->[2] + $g->[4] * sin(rad_of($at)), $g->[3] - $g->[4] * cos(rad_of($at))] : [$at, $g->[2]] }
+# where a bulge is, t seconds into its run of dur seconds from `from` to `to`
+sub bulge_at { my ($g, $from, $to, $t, $dur) = @_; where($g, $from + ($to - $from) * curve($t / $dur, @EASE)) }
+# A way round a glass's edge: its stretches one after another, [arc => pic, cx, cy, r, from, to] or
+# [line => pic, y, x_from, x_to, turn], run as one in dur s on the ease. Its edge and place t s into it:
+sub seg_len { my $g = shift; $g->[0] eq 'arc' ? abs($g->[6] - $g->[5]) * $PI / 180 * $g->[4] : abs($g->[4] - $g->[3]) }
+sub way_at { my ($way, $t, $dur) = @_; my $L = 0; $L += seg_len($_) for @$way; $L *= curve($t / $dur, @EASE);
+  for my $i (0 .. $#$way) { my $g = $way->[$i]; my $l = seg_len($g);
+    if ($L <= $l || $i == $#$way) { my $u = $l > 0 ? clampn($L / $l, 0, 1) : 1;
+      return $g->[0] eq 'arc' ? ([@$g[0 .. 4]], $g->[5] + ($g->[6] - $g->[5]) * $u) : ([line => @$g[1, 2, 5]], $g->[3] + ($g->[4] - $g->[3]) * $u) }
+    $L -= $l } }
+# where a bulge's picture lies at a place on its edge, sunk to s of its height (toward the edge) and sx of its width
+# (about its middle), as a group would place it: the map from the picture onto the face, [a, b, c, d, e, f] for
+# x' = a x + b y + c, y' = d x + e y + f
+sub pic_map { my ($g, $at, $s, $sx) = @_; $sx //= 1; my (undef, $pw, $ph, $rx, $ry) = @{ $PIC{ $g->[1] } };
+  if ($g->[0] eq 'arc') {   # turned round the centre (rx, ry in it), sunk toward the edge's row in it (ry - r)
+    my ($cx, $cy, $r) = @$g[2 .. 4]; my ($co, $si) = (cos(rad_of($at)), sin(rad_of($at))); my $v = ($ry - $r) * (1 - $s) - $ry;
+    return [$sx * $co, -$s * $si, $cx - $rx * $sx * $co - $v * $si, $sx * $si, $s * $co, $cy - $rx * $sx * $si + $v * $co] }
+  my ($y, $turn) = @$g[2, 3]; my ($rxx, $ryy) = $turn ? ($pw - $rx, $ph - $ry) : ($rx, $ry);   # (turned in its own box)
+  $turn ? [-$sx, 0, $at + $sx * ($pw - $rxx), 0, -$s, $y + $s * ($ph - $ryy)] : [$sx, 0, $at - $sx * $rxx, 0, $s, $y - $s * $ryy] }
+sub bulge_map { my ($g, $from, $to, $t, $dur, $s, $sx) = @_; pic_map($g, $from + ($to - $from) * curve($t / $dur, @EASE), $s, $sx) }
+# each panel's glass as the bulges run round it, and how far a point is outside it (negative inside)
+my %OUTLINE = (heart => [circle => 125, 225, 43.5], steps => [circle => 325, 225, 43.5], readout => [circle => 225, 325, 43.5],
+               pill => [stadium => 178, 272, 135, 25.5], window => [dome => 225, 96.5, 32]);
+sub field { my ($p, $x, $y) = @_; my ($k, @o) = @{ $OUTLINE{$p} };
+  return sqrt(($x - $o[0]) ** 2 + ($y - $o[1]) ** 2) - $o[2] if $k eq 'circle';
+  if ($k eq 'stadium') { my $px = clampn($x, $o[0], $o[1]); return sqrt(($x - $px) ** 2 + ($y - $o[2]) ** 2) - $o[3] }
+  my ($d, $flat) = (sqrt(($x - $o[0]) ** 2 + ($y - $o[1]) ** 2) - $o[2], $y - $o[1]); $d > $flat ? $d : $flat }
+sub dist { sqrt(($_[0][0] - $_[1][0]) ** 2 + ($_[0][1] - $_[1][1]) ** 2) }
+sub fmt3 { sprintf '%.3f', $_[0] }
+# The wave between bulges a and b: the quadratic from one to the other whose middle stands off the midpoint
+# of the line between them, toward t (the midpoint of where they're heading), by 0.22 of their distance
+# apart, or by 0.75 of the room to the glass's edge that way if that's less. Undef while they're under 1 px apart.
+sub wave_curve { my ($p, $a, $b, $t) = @_; my @m = (($a->[0] + $b->[0]) / 2, ($a->[1] + $b->[1]) / 2);
+  my $c = dist($a, $b); return undef if $c < 1;
+  my @n = (-($b->[1] - $a->[1]) / $c, ($b->[0] - $a->[0]) / $c); my $side = ($t->[0] - $m[0]) * $n[0] + ($t->[1] - $m[1]) * $n[1];
+  @n = map { -$_ } @n if $side < 0;
+  my $room = 0; $room += 0.25 while $room < 200 && field($p, $m[0] + $room * $n[0], $m[1] + $room * $n[1]) < 0;
+  my $most = 0.75 * $room; my $sag = abs($side) < 1e-9 ? 0 : 0.22 * $c < $most ? 0.22 * $c : $most;
+  # and less where that would still cross the glass's edge (a straight edge has no curve to give it room)
+  my $k; for (1 .. 40) { $k = [$m[0] + 2 * $sag * $n[0], $m[1] + 2 * $sag * $n[1]];
+    last unless grep { my $u = $_ / 32; field($p, map { (1 - $u) ** 2 * $a->[$_] + 2 * $u * (1 - $u) * $k->[$_] + $u * $u * $b->[$_] } 0, 1) > 0 } 1 .. 31;
+    $sag *= 0.8 }
+  { m => \@m, k => $k } }
+my @RUNS;   # every run: { prefix, panel, start, fps, open, frames => [ { name, line (its wave's, if drawn), bulges => [lines] } ] }
+my $ALONE = 0;   # runs whose bulges go alone (under 3 waves, or a tick with only one bulge)
+my $FRONT_H = 4.5;   # how high the waves (and the tap rings) stand, px
+# A run's frames, one each 1/fps s from the first shown until tmax or it has faded (pos: t -> its bulges, one or
+# two; look: t -> [height, alpha]; maps: t -> each bulge's [picture, bulge_map]). Each frame draws the bulges, and
+# the wave between two but where they are under 1 px apart, or where its middle can't stand 1 px inside the glass
+# (a sliver along the rim), at the run's start or end. A run with under 3 waves, or whose wave would come and go,
+# draws its bulges alone (a crossing's last tick, whose bulges start together at the rim). Every wave drawn stays in
+# its glass and bows forward. Its picture shows from its start second for as many seconds as it lasts (open).
+sub add_run { my ($panel, $prefix, $start, $fps, $tmax, $pos, $target, $look, $maps) = @_; my (@fr, $kept); $kept = '';
+  for (my $k = 0; $k / $fps < $tmax; $k++) { my $t = $k / $fps; my ($h, $al) = @{ $look->($t) };
+    if ($al < 0.03) { last if @fr; next }   # not shown yet (its bulges' fade starts at nothing), or faded (too faint to draw)
+    my @end = @{ $pos->($t) }; my $w = @end == 2 ? wave_curve($panel, @end, $target) : undef; my ($a, $b) = @end;
+    my $name = sprintf '%s_f%02d', $prefix, $k; my $keep = 0;
+    if ($w) {
+      my @at = map { my $u = $_ / 64; [map { (1 - $u) ** 2 * $a->[$_] + 2 * $u * (1 - $u) * $w->{k}[$_] + $u * $u * $b->[$_] } 0, 1] } 0 .. 64;
+      for (@at) { my $f = field($panel, @$_); die sprintf("%s: the wave leaves its glass by %.2f px\n", $name, $f) if $f > 0.25 }
+      die "$name: the wave bows away from where its bulges are heading\n"
+        if ($w->{k}[0] - $w->{m}[0]) * ($target->[0] - $w->{m}[0]) + ($w->{k}[1] - $w->{m}[1]) * ($target->[1] - $w->{m}[1]) < -1e-9;
+      $keep = field($panel, @{ $at[32] }) <= -1.5 }   # (its middle a pixel and a half in: at one, the glass's inner edge can cut it all away)
+    $kept .= $keep ? 1 : 0;
+    push @fr, { name => $name, line => $keep ? join(' ', 'front', $name, $panel, map(fmt3($_), @$a, @{ $w->{k} }, @$b, $h, $al)) : undef,
+      bulges => [map { join ' ', 'bulge', $name, $PIC{ $_->[0] }[0], (map { sprintf '%.4f', $_ } @{ $_->[1] }), fmt3($al) } @{ $maps->($t) }] } }
+  if (($kept =~ tr/1//) < 3 || $kept =~ /10+1/) { $_->{line} = undef for @fr; $ALONE++ }
+  push @RUNS, { prefix => $prefix, panel => $panel, start => $start, fps => $fps, open => POSIX::ceil($tmax), frames => \@fr } }
+# what PLAN=1 writes: the panels' outlines, the tap rings (inset, height), and each run (its start second and frame
+# rate) with its frames: each frame's wave, if drawn, then its bulges (picture, map onto the face, alpha)
+sub fronts_text { join '', (map { my ($k, @o) = @{ $OUTLINE{$_} }; join(' ', 'outline', $_, $k, map(fmt3($_), @o)) . "\n" } qw(heart steps readout pill window)),
+  "ripple exp_ripple_dial heart 7 $FRONT_H\n", "ripple exp_ripple_pill pill 7 $FRONT_H\n",
+  map { my $r = $_; ("run $r->{prefix} $r->{panel} $r->{start} $r->{fps}\n", map { ($_->{line} ? "$_->{line}\n" : ()), map { "$_\n" } @{ $_->{bulges} } } @{ $r->{frames} }) } @RUNS }
+
 # ---- pulsing with the hand (the quartz face, its hand ticking once a second) -------------------
-# At each tick while the seconds hand crosses a glass element, a bulge runs from where the hand's
-# centre line meets the glass's edge on to the end of the glass (where the hand leaves it), slowly,
-# sinking and fading before it gets there: as if each tick pushed the glass on.
-# As the hand leaves a dial, two bulges run back round from where it left to where it came in.
+# At each tick while the seconds hand crosses a glass element, a bulge sets off from where the hand's
+# centre line meets the glass's edge toward the end of the glass (where the hand leaves it), slowly,
+# getting smaller and fading to nothing a second and a half after the tick: as if each tick pushed the glass on.
+# As the hand leaves a glass, two bulges run back round from where it left to where it came in.
 {
-  my $RUN = 2; my $SINK = 1.5; my $PFPS = 8;   # a pulse's run, its fading and sinking (s), and its frame rate
+  # a pulse's run to the end of its glass (s: how fast it goes), its life (s: shrinking, full about half the way and
+  # fading to nothing by then, near the end of its glass), and its frame rate
+  my $RUN = 2; my $SINK = 1.5; my $PFPS = 8;
   # Where the hand's line, at angle th, meets a circle round (cx, cy), radius r: at th + 90 +- acos(d / r)
   # round the circle's centre (clockwise from 12), d the line's distance from it; and whether it does.
   my $crossn = sub { my ($cx, $cy, $r, $th) = @_; my ($dx, $dy) = ($cx - 225, $cy - 225);
@@ -162,54 +170,23 @@ $add{window} = '';
     for my $c (@c) { my $k = $c + 360 * ($up ? POSIX::ceil(($last - $c) / 360) : POSIX::floor(($last - $c) / 360));
       $end = $k if !defined $end || abs($k - $last) < abs($end - $last) }
     $end };
-  my $size = sub { my ($pw, $ph, $rx, $ry) = @_; 1 + int(1 + (sort { $b <=> $a } map { sqrt(($_->[0] - $rx) ** 2 + ($_->[1] - $ry) ** 2) } [0, 0], [$pw, 0], [0, $ph], [$pw, $ph])[0]) };
-  # The pulses: a new one each tick, each running 2 s and going back unseen over 2 s, so four of them
-  # take turns (by the second, in fours). Each sits, without moving there, where the hand crosses the
-  # edge at the second its run starts (outer), and runs from there to the end (inner, turned or moved
-  # on by the distance), so it always starts at the hand. A run started goes on to its end though
-  # the hand leaves the glass meanwhile. The hand stands only at whole seconds, so where it crosses
-  # the edge is worked out here, for the seconds each starts a run, and the face only looks it up (it
-  # worked it out itself, with sin and acos, which made the pulses half of all the face works out).
+  # The pulses: a new one each tick, each its own picture (below). Each starts where the hand crosses the edge at
+  # its tick, and runs toward the end, so it always starts at the hand. The hand stands only at whole seconds, so
+  # where it crosses the edge is worked out here, for the seconds it does.
   #   at: the hand's angle (degrees) -> (where it crosses the edge, whether it does)
-  # The second a pulse's run starts, as the face works it out (its own, or going back, its next one's):
-  my $starts = sub { my $p = shift; "((([SECOND] + 62) - (([SECOND] + " . (62 - $p) . ") % 4)) % 60)" };
-  for my $p (0 .. 3) { for my $S (0 .. 59) { my $m = ($S + 4 - $p) % 4;   # (checked against what it's meant to be)
-    die "pulse ${p}'s start at $S\n" if (($S + 62) - (($S + 62 - $p) % 4)) % 60 != ($S + ($m < 2 ? -$m : 4 - $m) + 60) % 60 } }
-  # (Each pulse is noted here, where its glass is, and made at the end, once every pulse's runs are
-  # known: see the waiting below.)
-  my (@specs, @snaps);
-  my $pulse = sub { my ($geom, $at, $end) = @_;
-    # each copy's runs: the seconds they start (every fourth) that the hand crosses the edge, and where
-    my @v = map { my $p = $_; +{ map { my ($v, $on) = $at->(6 * $_ + 0.26); $on ? ($_ => $v) : () } grep { $_ % 4 == $p } 0 .. 59 } } 0 .. 3;
-    push @specs, [$geom, $end, \@v]; "\x01$#specs\x01" };
-  # holds: a copy's run start => the second it goes back, for those that wait (below)
-  my $make = sub { my ($geom, $end, $vs, $holds) = @_; my ($kind, $pic, @g) = @$geom; my ($name, $pw, $ph, $rx, $ry) = @{ $PIC{$pic} };
-    join '', map { my $p = $_; my %v = %{ $vs->[$p] }; my %h = %{ $holds->[$p] };
-      my $st = $starts->($p); my $m = "(([SECOND] + " . (4 - $p) . ') % 4)';   # 0 and 1 its run, 2 and 3 going back
-      my $look = sub { my ($f, $else) = @_; my $e = fmt($else); $e = "(($st == $_) ? " . fmt($f->($v{$_})) . " : $e)" for sort { $b <=> $a } keys %v; $e };
-      # waiting, after the run from s, until r (from s + 2): where that run left it
-      my $waits = sub { my ($s, $r) = @_; "((([SECOND] + " . (60 - ($s + 2) % 60) . ") % 60) &lt; " . ($r - $s - 2) . ')' };
-      my $held = sub { my ($f, $else) = @_; my $e = $else; $e = '(' . $waits->($_, $h{$_}) . ' ? ' . fmt($f->($v{$_})) . " : $e)" for sort { $b <=> $a } keys %h; $e };
-      my $go = "(($m &lt; 1.5) &amp;&amp; (" . join(' || ', map { "($st == $_)" } sort { $a <=> $b } keys %v) . '))';
-      my $on = %h ? "($go || " . join(' || ', map { $waits->($_, $h{$_}) } sort { $a <=> $b } keys %h) . ')' : $go;
-      my $run = sub { "<Transform target=\"$_[0]\" value=\"" . $held->(sub { $end - $_[0] }, "(($m &lt; 1.5) ? " . $look->(sub { $end - $_[0] }, 0) . ' : 0)') . '">' . anim($RUN, join(' ', @EASE), $PFPS) . '</Transform>' };
-      # it fades, and sinks into the edge: shrinking from the edge's line in the picture
-      my $sink = "<Transform target=\"alpha\" value=\"($on ? $ON : 0)\">" . anim($SINK, $FADE, $PFPS) . '</Transform>'
-               . "<Transform target=\"scaleY\" value=\"($on ? 0.2 : 1)\">" . anim($SINK, '0.5 0 1 1', $PFPS) . '</Transform>';
-      !%v ? () : $kind eq 'arc' ? do { $objects++; my ($cx, $cy, $r) = @g; my $S = $size->($pw, $ph, $rx, $ry); my $box = "width=\"" . 2 * $S . "\" height=\"" . 2 * $S . "\" pivotX=\"0.5\" pivotY=\"0.5\"";
-        "<Group x=\"" . ip($cx - $S) . "\" y=\"" . ip($cy - $S) . "\" $box angle=\"" . fmt($end) . "\">$AMB<Transform target=\"angle\" value=\"" . $held->(sub { $_[0] }, $look->(sub { $_[0] }, $end)) . '" />'
-        . "<Group x=\"0\" y=\"0\" $box angle=\"0\">" . $run->('angle')
-        . "<Group x=\"" . ip($S - $rx) . "\" y=\"" . ip($S - $ry) . "\" width=\"$pw\" height=\"$ph\" pivotX=\"0.5\" pivotY=\"" . fmt(($ry - $r) / $ph) . "\" alpha=\"0\">$AMB$sink"
-        . "<PartImage x=\"0\" y=\"0\" width=\"$pw\" height=\"$ph\">$AMB<Image resource=\"$name\" /></PartImage></Group></Group></Group>" }
-      : do { $objects++; my ($y, $turn) = @g; my ($rxx, $ryy) = $turn ? ($pw - $rx, $ph - $ry) : ($rx, $ry);
-        "<Group x=\"" . ip($end - $rxx) . "\" y=\"" . ip($y - $ryy) . "\" width=\"$pw\" height=\"$ph\">$AMB<Transform target=\"x\" value=\"" . $held->(sub { $_[0] - $rxx }, $look->(sub { $_[0] - $rxx }, $end - $rxx)) . '" />'
-        . "<Group x=\"0\" y=\"0\" width=\"$pw\" height=\"$ph\" pivotX=\"0.5\" pivotY=\"" . fmt($ryy / $ph) . "\" alpha=\"0\">" . $run->('x') . $sink
-        . "<PartImage x=\"0\" y=\"0\" width=\"$pw\" height=\"$ph\"" . ($turn ? " pivotX=\"0.5\" pivotY=\"0.5\" angle=\"$turn\"" : '') . ">$AMB<Image resource=\"$name\" /></PartImage></Group></Group>" } } 0 .. 3 };
+  my (@specs, @SNAPS);
+  # A glass's snap back: as the hand leaves it (at the angle `leaves`), two bulges run back from where it left to
+  # where it came in, one each way round its edge (the two ways), and fade, as water does that has hit the far side
+  # of its glass; a tick after the hand's line has left it (drawn in its wave's picture: below).
+  my $snap_back = sub { my ($n, $leaves, @ways) = @_; my $snap = int($leaves / 6 + 2) % 60;
+    push @SNAPS, [$n, $snap, @ways]; $when{$n} = "-/$snap" };
+  my $pulse = sub { my ($panel, $geom, $at, $end) = @_;
+    push @specs, [$geom, $end, { map { my ($v, $on) = $at->(6 * $_ + 0.26); $on ? ($_ => $v) : () } 0 .. 59 }, $panel] };
   # where the hand's line meets a straight edge at height y, between x0 and x1 (turn: 180 facing down);
   # held within the face, as the hand nears 3 or 9 o'clock and the line meets the edge far off
   # (the edges' runs go the hand's way, to their right-hand end)
-  my $line = sub { my ($pic, $y, $x0, $x1, $turn) = @_;
-    $pulse->([line => $pic, $y, $turn], sub { my $t = rad_of($_[0]); my $x = clampn(225 + (225 - $y) * sin($t) / clampn(cos($t), 0.05, 1), 0, 450);
+  my $line = sub { my ($panel, $pic, $y, $x0, $x1, $turn) = @_;
+    $pulse->($panel, [line => $pic, $y, $turn], sub { my $t = rad_of($_[0]); my $x = clampn(225 + (225 - $y) * sin($t) / clampn(cos($t), 0.05, 1), 0, 450);
       ($x, cos($t) > 0.05 && $x >= $x0 && $x <= $x1) }, $x1) };
   # The dials: the pulses run round to where the hand will leave; as it leaves, two bulges run back
   # round from there to where it came in, both ways, and fade, as water does that has hit the far
@@ -222,48 +199,116 @@ $add{window} = '';
     my ($in, $out) = ($phi - $beta - 90, $phi + $beta + 90);
     my @lim = ([$out, $in + 360], [$in, $out]);
     for my $k (0, 1) {
-      $add{$n} .= $pulse->([arc => 'dial', $cx, $cy, $r], sub { my @c = $crossn->($cx, $cy, $r, $_[0]); (clampn($c[$k], @{ $lim[$k] }), $c[2]) }, $out) }
-    # back round, both ways, from the exit to where it came in, a tick after the hand's line has left the dial
-    my $snap = int(($phi + $beta) / 6 + 2) % 60;
+      $pulse->($n, [arc => 'dial', $cx, $cy, $r], sub { my @c = $crossn->($cx, $cy, $r, $_[0]); (clampn($c[$k], @{ $lim[$k] }), $c[2]) }, $out) }
+    # its snap back, round from the exit to where it came in, the near way and the far
     my $o = $out - 360 * int($out / 360); my $i = $in - 360 * int($in / 360);
-    my $up = $i - $o; $up += 360 while $up <= 0;   # the near way, round from where it leaves to where it came in
-    $add{$n} .= join '', map { way($_, $D, [arc => 'dial', $cx, $cy, $r, $o, $o + $up]) . way($_, $D, [arc => 'dial', $cx, $cy, $r, $o + 360, $o + $up]) }
-      pair(each_minute_at($snap));
-    push @snaps, $snap; $when{$n} = "-/$snap" }
+    my $up = $i - $o; $up += 360 while $up <= 0;
+    $snap_back->($n, $phi + $beta, [[arc => 'dial', $cx, $cy, $r, $o, $o + $up]], [[arc => 'dial', $cx, $cy, $r, $o + 360, $o + $up]]) }
   # Pulses where the hand crosses a round piece of glass (the pill's ends, the window's dome), shown on
   # its own part of the circle (vis: the angle -> shown), running to that part's end (ends: the angles
   # round the circle where the part ends, or the hand leaves it).
-  my $round = sub { my ($add, $pic, $cx, $cy, $r, $vis, @ends) = @_;
+  my $round = sub { my ($panel, $pic, $cx, $cy, $r, $vis, @ends) = @_;
     for my $k (0, 1) {
       my $at = sub { my @c = $crossn->($cx, $cy, $r, $th12->($_[0])); ($c[$k], $c[2] && $vis->($c[$k])) };
       my $end = $arc_end->($at, @ends);
-      $$add .= $pulse->([arc => $pic, $cx, $cy, $r], $at, $end) if defined $end } };
+      $pulse->($panel, [arc => $pic, $cx, $cy, $r], $at, $end) if defined $end } };
   # the pill: its straight edges, or its round ends where the hand crosses one (each end's outer half)
   { my $tan = do { my ($dx, $dy) = (272 - 225, 135 - 225); my $D2 = $dx * $dx + $dy * $dy;   # where the hand leaves the right end
       atan2($dx, -$dy) * 180 / $PI + atan2(25.5, sqrt($D2 - 25.5 * 25.5)) * 180 / $PI + 90 };
-    $round->(\$add{pill}, 'pill_cap', 178, 135, 25.5, sub { sin(rad_of($_[0])) < 0 }, 0, 180);
-    $round->(\$add{pill}, 'pill_cap', 272, 135, 25.5, sub { sin(rad_of($_[0])) > 0 }, $tan) }
-  $add{pill} .= $line->('pill_bot', 160.5, 178, 272, 180) . $line->('pill_top', 109.5, 178, 272, 0);
+    $round->('pill', 'pill_cap', 178, 135, 25.5, sub { sin(rad_of($_[0])) < 0 }, 0, 180);
+    $round->('pill', 'pill_cap', 272, 135, 25.5, sub { sin(rad_of($_[0])) > 0 }, $tan);
+    # its snap back, from where the hand left its right end over the top and along the bottom to where it came in
+    # at its left end (where it left, mirrored: the pill and the hand's way across it are even about x 225)
+    $snap_back->('pill', $tan - 90, [[arc => 'pill_cap', 272, 135, 25.5, $tan, 0], [line => 'pill_top', 109.5, 272, 178, 0], [arc => 'pill_cap', 178, 135, 25.5, 360, 360 - $tan]],
+      [[arc => 'pill_cap', 272, 135, 25.5, $tan, 180], [line => 'pill_bot', 160.5, 272, 178, 180], [arc => 'pill_cap', 178, 135, 25.5, 180, 360 - $tan]]) }
+  $line->('pill', 'pill_bot', 160.5, 178, 272, 180); $line->('pill', 'pill_top', 109.5, 178, 272, 0);
   # the window: its dome (the upper half of its circle) and its flat base
-  $round->(\$add{window}, 'win_cap', 225, 96.5, 32, sub { cos(rad_of($_[0])) > 0 }, 90);
-  $add{window} .= $line->('win_line', 96.5, 193, 257, 180);
-  # A copy whose run ends its glass's crossing doesn't go back at once, unseen as that is: with the hand
-  # gone, the face would animate two seconds more just for that. It waits where the run left it until
-  # the face animates anyway for the two seconds it takes (another glass's pulses running, or a dial's
-  # water running back), and goes back then, before its next run.
-  my %busy; for my $sp (@specs) { for my $v (@{ $sp->[2] }) { for (keys %$v) { $busy{$_}++; $busy{($_ + 1) % 60}++ } } }
-  $busy{$_}++ for @snaps;
-  my $waited = 0;
-  my @made = map { my ($geom, $end, $vs) = @$_;
-    my @holds = map { my $v = $_; my %h;
-      for my $s (keys %$v) { next if exists $v->{($s + 4) % 60};
-        my ($gap) = sort { $a <=> $b } map { (($_ - $s) % 60) || 60 } keys %$v;   # to its next run (a minute on, if no other)
-        for my $r ($s + 2 .. $s + $gap - 2) { next unless $busy{$r % 60} && $busy{($r + 1) % 60}; if ($r > $s + 2) { $h{$s} = $r; $waited++ } last } }
-      \%h } @$vs;
-    $make->($geom, $end, $vs, \@holds) } @specs;
-  s/\x01(\d+)\x01/$made[$1]/g for values %add;
-  print STDERR "$waited pulses wait to go back\n";
+  $round->('window', 'win_cap', 225, 96.5, 32, sub { cos(rad_of($_[0])) > 0 }, 90);
+  $line->('window', 'win_line', 96.5, 193, 257, 180);
+  # its snap back, from the corner where the hand leaves it over the dome and along the base to the one where it came in
+  $snap_back->('window', atan2(257 - 225, 225 - 96.5) * 180 / $PI, [[arc => 'win_cap', 225, 96.5, 32, 90, -90]], [[line => 'win_line', 96.5, 257, 193, 180]]);
+  # The runs: each tick's bulges round a panel (and a wave between two), and each glass's snap back (two, and a
+  # wave between them), each run an animated picture of its own; the waves fade, and the pulses' shrink, as their
+  # bulges do.
+  my %by; for my $i (0 .. $#specs) { my ($v, $panel) = @{ $specs[$i] }[2, 3]; push @{ $by{$panel}{$_} }, $i for keys %$v }
+  my $sunk = sub { 1 - 0.8 * curve($_[0] / $SINK, 0.5, 0, 1, 1) };   # a pulse's bulge's size (and its wave's height) as it shrinks
+  for my $panel (qw(heart steps readout pill window)) {
+    for my $S (sort { $a <=> $b } keys %{ $by{$panel} }) { my @ix = @{ $by{$panel}{$S} };
+      die "$panel: " . @ix . " bulges at second $S\n" if @ix > 2;
+      my @way = map { my ($geom, $end, $v) = @{ $specs[$_] }; [$geom, $v->{$S}, $end] } @ix;
+      my @dest = map { bulge_at(@$_, $RUN, $RUN) } @way;
+      add_run($panel, sprintf('exp_front_%s_s%02d', $panel, $S), $S, $PFPS, $SINK,
+        sub { [map { bulge_at(@$_, $_[0], $RUN) } @way] },
+        [(sum0(map { $_->[0] } @dest)) / @dest, (sum0(map { $_->[1] } @dest)) / @dest],
+        sub { [$FRONT_H * $sunk->($_[0]), clampn(-curve($_[0] / $SINK, 0, 900 / $ON, 0.6, 0), 0, 255) / 255] },
+        sub { my $t = shift; [map { [$_->[0][1], bulge_map(@$_, $t, $RUN, ($sunk->($t)) x 2)] } @way] }) }
+    for (grep { $_->[0] eq $panel } @SNAPS) { my ($n, $snap, @ways) = @$_;
+      my $on = sub { my $t = shift; map { [way_at($_, $t, $D)] } @ways };   # each bulge's edge and place on it
+      my $pos = sub { [map { where(@$_) } $on->($_[0])] };
+      add_run($n, "exp_front_${n}_snap", $snap, $FPS, $D, $pos, where(way_at($ways[0], $D, $D)),
+        sub { [$FRONT_H, clampn(-curve($_[0] / $D, 0, 900 / $ON, 0.6, 0), 0, 255) / 255] },
+        sub { [map { [$_->[0][1], pic_map(@$_, 1)] } $on->($_[0])] }) } }
+  if ($ENV{PLAN}) {
+    (my $dir = __FILE__) =~ s{[^/\\]*$}{}; open my $f, '>:raw', "${dir}fronts.txt" or die "can't write ${dir}fronts.txt: $!\n"; print $f fronts_text(); close $f;
+    my ($frames, $waves) = (0, 0); for (@RUNS) { $frames += @{ $_->{frames} }; $waves += grep { $_->{line} } @{ $_->{frames} } }
+    printf STDERR "%d runs (%d with their bulges alone), %d frames (%d with a wave)\n", scalar @RUNS, $ALONE, $frames, $waves; exit 0 }
 }
+
+# ---- the waves and the tap rings, into each panel ----------------------------------------------------
+# Each run is one animated picture, its wave and its two bulges (pack_waves.py packs its frames, one each 1/fps s
+# from the run's start), there only from its start second until it has played (a Condition on the second), and
+# played as that Condition brings it in: so it starts as the hand ticks. (A Group per frame, each shown in its own
+# slice of the run, tripled the face's Groups, and the renderer hung on it after a cold start.)
+my %WAVE;   # each run's animated picture's box, from waves.txt
+sub gate_expr { "((([SECOND] + " . (60 - $_[0]) . ") % 60) &lt;= $_[1])" }   # S to S + open
+sub wave_name { (my $n = $_[0]) =~ s/^exp_front_/exp_wave_/; $n }
+sub wave_xml { my ($r) = @_; my ($x, $y, $w, $h) = @{ $WAVE{ wave_name($r->{prefix}) } };
+  '<Condition><Expressions><Expression name="c0">' . gate_expr($r->{start}, $r->{open}) . '</Expression></Expressions><Compare expression="c0">'
+  . "<PartAnimatedImage x=\"$x\" y=\"$y\" width=\"$w\" height=\"$h\">$AMB"
+  . '<AnimationController play="ON_VISIBLE" loopCount="1" beforePlaying="HIDE" afterPlaying="HIDE" />'
+  . '<AnimatedImage resource="' . wave_name($r->{prefix}) . '" format="WEBP" /></PartAnimatedImage></Compare></Condition>' }
+# A tap on a panel sends a ring out from its centre, fading by the time it gets to the edge: two copies, the
+# page's odd and even, as today's tap bulges took turns. %FRAME: the rings' boxes, from fronts_frames.txt.
+my %FRAME;
+sub ripple_xml { my ($n, $cx, $cy, $pic) = @_; my ($fx, $fy, $w, $h) = @{ $FRAME{$pic} };
+  # (drawn round the heart dial's centre, or the pill's: see fronts_text)
+  my ($dx, $dy) = $pic eq 'exp_ripple_pill' ? (($OUTLINE{pill}[1] + $OUTLINE{pill}[2]) / 2, $OUTLINE{pill}[3]) : @{ $OUTLINE{heart} }[1, 2];
+  my ($x, $y) = ($fx + $cx - $dx, $fy + $cy - $dy); my $piv = 'pivotX="' . fmt(($cx - $x) / $w) . '" pivotY="' . fmt(($cy - $y) / $h) . '"';
+  join '', map { "<Group x=\"$x\" y=\"$y\" width=\"$w\" height=\"$h\" $piv alpha=\"0\">$AMB<Transform target=\"alpha\" value=\"($_ ? $ON : 0)\">" . anim($DT, $FADE) . '</Transform>'
+    . join('', map { "<Transform target=\"$_->[0]\" value=\"($_->[1] ? 1 : 0.1)\">" . anim($DT, '0.2 0.6 0.4 1') . '</Transform>' } [scaleX => $_], [scaleY => $_])
+    . "<PartImage x=\"0\" y=\"0\" width=\"$w\" height=\"$h\">$AMB<Image resource=\"$pic\" /></PartImage></Group>" } tap($n) }
+# every element of a wave's or a ring's carries its ambient variant (an animated one without it hangs the renderer)
+sub with_amb { my ($what, $xml) = @_; die "$what: an element without its ambient variant\n" if $xml =~ /<(?:Group|PartImage|PartAnimatedImage)\b[^>]*>(?!\Q$AMB\E)/; $xml }
+{ # what fronts.ps1 drew and pack_waves.py packed must be from this plan, and their pictures as listed
+  use Digest::SHA qw(sha256_hex);
+  (my $dir = __FILE__) =~ s{[^/\\]*$}{}; my $pics = "${dir}../../watchfaces/src/expedition/res/drawable-nodpi/";
+  my $read = sub { open my $f, '<:raw', "$dir$_[0]" or die "no $dir$_[0]: $_[1]\n"; my $all = <$f>; close $f; $all };
+  my $plan = $read->('fronts.txt', 'run PLAN=1 jelly.pl, then fronts.ps1 and pack_waves.py');
+  die "fronts.txt isn't this plan: re-run PLAN=1 jelly.pl, fronts.ps1 and pack_waves.py\n" unless $plan eq fronts_text();
+  my $drawn = $read->('fronts_frames.txt', 'run fronts.ps1'); my @l = split /\r?\n/, $drawn;
+  die "fronts_frames.txt wasn't drawn from this fronts.txt: re-run fronts.ps1 and pack_waves.py\n" unless shift(@l) eq 'sha256 ' . sha256_hex($plan);
+  for (@l) { my ($n, @b) = split; $FRAME{$n} = \@b }
+  my @w = split /\r?\n/, $read->('waves.txt', 'run pack_waves.py');
+  my %art = map { (split / /)[2] => 1 } map { @{ $_->{bulges} } } map { @{ $_->{frames} } } @RUNS;   # the bulge pictures drawn in them
+  my $art = join '', map { open my $p, '<:raw', "$pics$_.png" or die "no picture $pics$_.png: re-run bulges.ps1\n"; local $/; my $all = <$p>; close $p; $all } sort keys %art;
+  die "waves.txt wasn't packed from this fronts_frames.txt and these bulges: re-run pack_waves.py\n" unless shift(@w) eq 'sha256 ' . sha256_hex($drawn . $art);
+  for (@w) { my ($n, @b) = split; $WAVE{$n} = \@b }
+  for my $n ('exp_ripple_dial', 'exp_ripple_pill') { my $b = $FRAME{$n} or die "$n isn't in fronts_frames.txt: re-run fronts.ps1\n";
+    open my $p, '<:raw', "$pics$n.png" or die "no picture $pics$n.png: re-run fronts.ps1\n"; read $p, my $head, 24; close $p;
+    my ($pw, $ph) = unpack 'N2', substr($head, 16, 8); die "$n is ${pw}x$ph, not $b->[2]x$b->[3]: re-run fronts.ps1\n" if $pw != $b->[2] || $ph != $b->[3] }
+  for my $r (@RUNS) { my $n = wave_name($r->{prefix}); my $b = $WAVE{$n} or die "$n isn't in waves.txt: re-run pack_waves.py\n";
+    open my $p, '<:raw', "$pics$n.webp" or die "no picture $pics$n.webp: re-run pack_waves.py\n"; read $p, my $head, 30; close $p;
+    die "$n.webp isn't an animated WebP\n" unless substr($head, 0, 4) eq 'RIFF' && substr($head, 8, 8) eq 'WEBPVP8X';
+    my ($pw, $ph) = map { 1 + unpack('V', substr($head, $_, 3) . "\0") } 24, 27;
+    die "$n.webp is ${pw}x$ph, not $b->[2]x$b->[3]: re-run pack_waves.py\n" if $pw != $b->[2] || $ph != $b->[3];
+    # its gate, as the watch works it out, every second of the minute: open from its start second for as long as it lasts
+    for my $sec (0 .. 59) { (my $e = gate_expr($r->{start}, $r->{open})) =~ s/\[SECOND\]/$sec/g; $e =~ s/&lt;/</g; my $on = eval($e) ? 1 : 0; die "can't work out $e: $@" if $@;
+      die "$n: its gate is wrong at second $sec\n" if $on != (($sec - $r->{start} + 60) % 60 <= $r->{open} ? 1 : 0) } } }
+for my $p (qw(heart steps readout pill window)) {
+  my %at = (heart => [125, 225], steps => [325, 225], readout => [225, 325], pill => [225, 135]);
+  my $ring = $at{$p} ? with_amb("the ${p}'s tap ring", ripple_xml($p, @{ $at{$p} }, $p eq 'pill' ? 'exp_ripple_pill' : 'exp_ripple_dial')) : '';
+  my $runs = join '', map { with_amb($_->{prefix}, wave_xml($_)) } grep { $_->{panel} eq $p } @RUNS;
+  $add{$p} = $ring . $runs . ($add{$p} // '') }
 
 # ---- into the face ------------------------------------------------------------------------------
 # Where an element's glass ends: after its body picture and the Condition drawing its rim.
@@ -297,4 +342,4 @@ die "a fraction of a pixel (the watch drops the element): $1\n" if $s =~ /(<(?:G
     my ($pw, $ph) = unpack 'N2', substr($head, 16, 8);
     die "$name is ${pw}x$ph, not ${w}x$h: copy what bulges.ps1 prints into %PIC\n" if $pw != $w || $ph != $h } }
 print $s;
-printf STDERR "%d bulge stretches; in/out seconds: %s\n", $objects, join(", ", map { "$_ $when{$_}" } sort keys %when);
+printf STDERR "snap backs (glass and second): %s\n", join(", ", map { "$_ $when{$_}" } sort keys %when);

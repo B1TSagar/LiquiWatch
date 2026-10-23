@@ -11,3 +11,5 @@
 .kotlin/
 # Samsung's Health Data SDK: under Samsung's own terms, not shared here (see phone/libs/README.txt)
 phone/libs/*.aar
+# fronts.ps1 draws the waves frame by frame here, for pack_waves.py to pack (the face only gets the packed pictures)
+tools/jelly/frames/

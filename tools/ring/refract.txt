@@ -1,0 +1,15 @@
+copy exp_refr_dial 81 181 88 88 -30 -89 266 266
+copy exp_refr_dial 281 181 88 88 -148 -89 266 266
+copy exp_refr_dial 181 281 88 88 -89 -148 266 266
+copy exp_refr_pill 152 109 146 52 -100 -47 345 242
+copy exp_refr_bead 302 69 17 17 -143 -29 219 219
+copy exp_refr_bead 364 132 17 17 -173 -60 219 219
+copy exp_refr_bead 386 216 17 17 -183 -101 219 219
+copy exp_refr_bead 364 301 17 17 -173 -142 219 219
+copy exp_refr_bead 302 364 17 17 -143 -173 219 219
+copy exp_refr_bead 217 386 17 17 -101 -183 219 219
+copy exp_refr_bead 132 364 17 17 -60 -173 219 219
+copy exp_refr_bead 69 302 17 17 -29 -143 219 219
+copy exp_refr_bead 46 217 17 17 -18 -101 219 219
+copy exp_refr_bead 69 132 17 17 -29 -60 219 219
+copy exp_refr_bead 131 69 17 17 -59 -29 219 219

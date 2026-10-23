@@ -74,7 +74,8 @@ for ($j = 0; $j -lt $chh; $j++) { for ($i = 0; $i -lt $cw; $i++) {
     # darkened or lightened as it shows over the panels' dark (28) instead.
     $fw = ($cr + $cg + $cb + (1 - $xa) * ($o[0] + $o[1] + $o[2])) / 3 + (255 - $aw) / 255 * 28; $fo = ($o[0] + $o[1] + $o[2]) / 3 + (1 - $oa) * 28
     if ($fw -lt $fo) { $xa = 1 - $fw / [math]::Max($fo, 0.001); $cr = 0; $cg = 0; $cb = 0 }
-    else { $xa = ($fw - $fo) / [math]::Max(255 - $fo, 0.001); $cr = 255 * $xa; $cg = $cr; $cb = 252 * $xa } }
+    elseif ($fo -lt 254) { $xa = ($fw - $fo) / (255 - $fo); $cr = 255 * $xa; $cg = $cr; $cb = 252 * $xa }
+    else { $xa = 0 } }   # (nothing lightens what's already white: over the pill's highlight the old way blew up to a lone white pixel)
   $af = 255 * [math]::Min(1.0, [math]::Max(0.0, $xa))
   if ($af -lt 1) { continue }
   $m = 255 / $af
